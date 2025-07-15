@@ -45,7 +45,7 @@ export class BinanceWebSocket {
   private onConnectionChange?: (connected: boolean) => void;
   private onErrorCallback?: (error: string) => void;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
+  private maxReconnectAttempts = 3; // Reduced from 5 to 3
   private reconnectDelay = 1000;
   private connectionTimeout: NodeJS.Timeout | null = null;
   private isConnecting = false;
@@ -53,13 +53,19 @@ export class BinanceWebSocket {
   private pingInterval: NodeJS.Timeout | null = null;
   private lastDataReceived = 0;
   private dataTimeoutCheck: NodeJS.Timeout | null = null;
+  private errorCount = 0; // Track consecutive errors
+  private lastErrorTime = 0; // Track last error time
+  private circuitBreakerDelay = 15000; // Increased to 15 seconds
+  private isCircuitBreakerActive = false; // Track circuit breaker state
+  private connectionAttempts = 0; // Track total connection attempts
+  private lastSuccessfulConnection = 0; // Track last successful connection
   
   // Fallback WebSocket URLs (corrected according to Binance documentation)
   private readonly wsUrls = [
     'wss://stream.binance.com:9443',
     'wss://stream.binance.com:443', 
-    'wss://data-stream.binance.vision',
-    'wss://stream.binance.us:9443' // US endpoint as additional fallback
+    'wss://data-stream.binance.vision'
+    // Removed US endpoint as it might cause connection issues for non-US users
   ];
   private currentUrlIndex = 0;
 
@@ -69,13 +75,51 @@ export class BinanceWebSocket {
   }
 
   connect() {
+    const now = Date.now();
+    
+    // Stronger rate limiting: minimum 3 seconds between attempts
+    if ((now - this.lastConnectionTime) < 3000) {
+      console.log('[WebSocket] Rate limited - minimum 3s between attempts');
+      return;
+    }
+    
     if (this.isConnecting) {
-      console.log('Connection already in progress, skipping...');
+      console.log('[WebSocket] Connection already in progress, skipping...');
+      return;
+    }
+
+    // Enhanced circuit breaker: prevent connection spam
+    if (this.isCircuitBreakerActive) {
+      const timeSinceActivation = now - this.lastErrorTime;
+      if (timeSinceActivation < this.circuitBreakerDelay) {
+        console.log(`[WebSocket] Circuit breaker active for ${Math.round((this.circuitBreakerDelay - timeSinceActivation) / 1000)}s more`);
+        return;
+      } else {
+        console.log('[WebSocket] Circuit breaker period ended, resetting...');
+        this.isCircuitBreakerActive = false;
+        this.errorCount = 0;
+      }
+    }
+
+    // Track connection attempts and implement backoff
+    this.connectionAttempts++;
+    
+    // If too many attempts without successful connection, increase delays
+    if (this.connectionAttempts > 5 && (now - this.lastSuccessfulConnection) > 60000) {
+      console.log('[WebSocket] Too many failed attempts, implementing extended backoff...');
+      const extendedDelay = Math.min(this.connectionAttempts * 5000, 60000); // Up to 1 minute
+      
+      setTimeout(() => {
+        if (!this.isConnected()) {
+          console.log('[WebSocket] Extended backoff complete, retrying...');
+          this.connect();
+        }
+      }, extendedDelay);
       return;
     }
 
     this.isConnecting = true;
-    this.lastConnectionTime = Date.now();
+    this.lastConnectionTime = now;
     
     // Clear any existing timeout
     if (this.connectionTimeout) {
@@ -103,7 +147,11 @@ export class BinanceWebSocket {
         console.log(`[WebSocket] Connected successfully to ${wsUrl}`);
         this.isConnecting = false;
         this.reconnectAttempts = 0;
+        this.errorCount = 0; // Reset error count on successful connection
+        this.connectionAttempts = 0; // Reset connection attempts on success
+        this.lastSuccessfulConnection = Date.now(); // Track successful connection
         this.currentUrlIndex = 0; // Reset to primary URL on successful connection
+        this.isCircuitBreakerActive = false; // Disable circuit breaker on success
         
         if (this.connectionTimeout) {
           clearTimeout(this.connectionTimeout);
@@ -124,6 +172,11 @@ export class BinanceWebSocket {
         try {
           // Update last data received timestamp
           this.lastDataReceived = Date.now();
+          
+          // Ensure connection status is updated when receiving data
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.onConnectionChange?.(true);
+          }
           
           const data = JSON.parse(event.data);
           
@@ -167,8 +220,8 @@ export class BinanceWebSocket {
         
         this.onConnectionChange?.(false);
         
-        // Only attempt reconnect if not manually closed
-        if (event.code !== 1000) {
+        // Only attempt reconnect if not manually closed and circuit breaker is not active
+        if (event.code !== 1000 && !this.isCircuitBreakerActive) {
           this.handleReconnect();
         }
       };
@@ -178,42 +231,81 @@ export class BinanceWebSocket {
         const errorMsg = this.getErrorMessage(error);
         console.error(`[WebSocket] Error: ${errorMsg}`);
         
+        // Enhanced error tracking for circuit breaker
+        const now = Date.now();
+        this.errorCount++;
+        this.lastErrorTime = now;
+        
         this.handleConnectionError(errorMsg);
         this.onConnectionChange?.(false);
+        
+        // Activate circuit breaker if too many errors
+        if (this.errorCount >= 3) {
+          console.warn(`[WebSocket] Activating circuit breaker - ${this.errorCount} consecutive errors`);
+          this.isCircuitBreakerActive = true;
+          const breakerDelay = Math.min(this.circuitBreakerDelay * this.errorCount, 120000); // Max 2 minutes
+          
+          console.log(`[WebSocket] Circuit breaker active for ${breakerDelay / 1000} seconds`);
+          
+          // Don't attempt reconnect immediately - let circuit breaker handle it
+          return;
+        }
+        
+        // Normal delay for first few errors, but longer than before
+        setTimeout(() => {
+          if (!this.isConnected() && this.reconnectAttempts < this.maxReconnectAttempts && !this.isCircuitBreakerActive) {
+            console.log('[WebSocket] Attempting reconnect after error...');
+            this.handleReconnect();
+          }
+        }, 5000); // Increased to 5 second delay
       };
     } catch (error) {
       this.isConnecting = false;
       const errorMsg = `Failed to create WebSocket: ${error}`;
       console.error(`[WebSocket] ${errorMsg}`);
       this.handleConnectionError(errorMsg);
-      this.handleReconnect();
+      
+      // Don't automatically reconnect on creation errors
+      this.errorCount++;
+      if (this.errorCount >= 3) {
+        this.isCircuitBreakerActive = true;
+        this.lastErrorTime = Date.now();
+      }
     }
   }
 
   private handleReconnect() {
+    // Don't reconnect if circuit breaker is active
+    if (this.isCircuitBreakerActive) {
+      console.log('[WebSocket] Circuit breaker active, skipping reconnect');
+      return;
+    }
+    
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       
       // Try next URL if current one failed multiple times
-      if (this.reconnectAttempts > 2) {
+      if (this.reconnectAttempts > 1) {
         this.currentUrlIndex = (this.currentUrlIndex + 1) % this.wsUrls.length;
         console.log(`[WebSocket] Switching to fallback URL: ${this.wsUrls[this.currentUrlIndex]}`);
       }
       
-      // Exponential backoff with jitter
-      const baseDelay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000);
-      const jitter = Math.random() * 1000;
+      // Exponential backoff with jitter and longer base delay
+      const baseDelay = Math.min(3000 * Math.pow(2, this.reconnectAttempts - 1), 60000); // Start at 3s, max 60s
+      const jitter = Math.random() * 2000; // Up to 2s jitter
       const delay = baseDelay + jitter;
       
       console.log(`[WebSocket] Reconnecting in ${Math.round(delay/1000)}s... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
       
       setTimeout(() => {
-        if (!this.isConnected()) {
+        if (!this.isConnected() && !this.isCircuitBreakerActive) {
           this.connect();
         }
       }, delay);
     } else {
-      console.error(`[WebSocket] Max reconnection attempts reached. Tried all URLs: ${this.wsUrls.join(', ')}`);
+      console.error(`[WebSocket] Max reconnection attempts reached. Activating circuit breaker.`);
+      this.isCircuitBreakerActive = true;
+      this.lastErrorTime = Date.now();
       this.handleConnectionError('Max reconnection attempts reached');
     }
   }
@@ -226,7 +318,7 @@ export class BinanceWebSocket {
     if (error instanceof ErrorEvent) {
       return error.message || 'Unknown WebSocket error';
     }
-    return `Connection error: ${error.type || 'Unknown'}`;
+    return `Connection error: ${error.type || 'error'}`;
   }
   
   private getCloseReason(code: number): string {
@@ -262,9 +354,9 @@ export class BinanceWebSocket {
           console.log('[WebSocket] No activity detected, connection seems healthy');
         }
       }
-    }, 30000); // 30 seconds
+    }, 60000); // Increased to 60 seconds
     
-    console.log('[WebSocket] Health check started (30s interval)');
+    console.log('[WebSocket] Health check started (60s interval)');
   }
   
   private stopHeartbeat() {
@@ -278,21 +370,21 @@ export class BinanceWebSocket {
   private startDataTimeoutCheck() {
     this.stopDataTimeoutCheck();
     
-    // Check for data timeout every 15 seconds
+    // Check for data timeout every 30 seconds (increased from 15)
     this.dataTimeoutCheck = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         const timeSinceLastData = Date.now() - this.lastDataReceived;
         
-        // If no data received for 30 seconds, something is wrong
-        if (timeSinceLastData > 30000) {
-          console.warn('[WebSocket] No data received for 30 seconds, reconnecting...');
+        // If no data received for 60 seconds (increased from 30), something is wrong
+        if (timeSinceLastData > 60000) {
+          console.warn('[WebSocket] No data received for 60 seconds, reconnecting...');
           this.handleConnectionError('Data timeout - no price updates received');
           this.ws.close(1000, 'Data timeout');
         }
       }
-    }, 15000);
+    }, 30000); // Check every 30 seconds
     
-    console.log('[WebSocket] Data timeout check started (15s interval)');
+    console.log('[WebSocket] Data timeout check started (30s interval)');
   }
   
   private stopDataTimeoutCheck() {
@@ -319,6 +411,9 @@ export class BinanceWebSocket {
     // Reset state
     this.isConnecting = false;
     this.reconnectAttempts = 0;
+    this.errorCount = 0;
+    this.isCircuitBreakerActive = false;
+    this.connectionAttempts = 0;
     
     if (this.ws) {
       this.ws.close(1000, 'Manual disconnect');
@@ -331,13 +426,19 @@ export class BinanceWebSocket {
     this.symbol = symbol.toLowerCase();
     this.interval = interval;
     
-    // Reset URL index for new stream
+    // Reset URL index and attempts for new stream
     this.currentUrlIndex = 0;
     this.reconnectAttempts = 0;
+    this.errorCount = 0;
+    this.isCircuitBreakerActive = false;
+    this.connectionAttempts = 0;
+    
+    // Trigger disconnection callback immediately
+    this.onConnectionChange?.(false);
     
     // Reconnect with new stream
     this.disconnect();
-    setTimeout(() => this.connect(), 100);
+    setTimeout(() => this.connect(), 500); // Increased delay to 500ms
   }
 
   onKline(callback: (data: WebSocketKlineData) => void) {
@@ -361,6 +462,9 @@ export class BinanceWebSocket {
   }
   
   getConnectionState(): string {
+    if (this.isCircuitBreakerActive) {
+      return 'Circuit Breaker Active';
+    }
     if (!this.ws) return 'Not initialized';
     switch (this.ws.readyState) {
       case WebSocket.CONNECTING: return 'Connecting';
@@ -377,13 +481,17 @@ export class BinanceWebSocket {
     currentUrl: string;
     isConnecting: boolean;
     lastConnectionTime: number;
+    isCircuitBreakerActive: boolean;
+    errorCount: number;
   } {
     return {
       state: this.getConnectionState(),
       attempts: this.reconnectAttempts,
       currentUrl: this.wsUrls[this.currentUrlIndex],
       isConnecting: this.isConnecting,
-      lastConnectionTime: this.lastConnectionTime
+      lastConnectionTime: this.lastConnectionTime,
+      isCircuitBreakerActive: this.isCircuitBreakerActive,
+      errorCount: this.errorCount
     };
   }
 }
