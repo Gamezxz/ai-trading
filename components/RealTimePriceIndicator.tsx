@@ -1,5 +1,7 @@
 'use client';
 
+import { formatPrice, formatPercentage } from '@/lib/formatPrice';
+
 interface RealTimePriceIndicatorProps {
   currentPrice: number | null;
   priceChange: number;
@@ -58,15 +60,15 @@ export default function RealTimePriceIndicator({
             {currentPrice ? (
               <>
                 <span className="text-2xl font-mono font-bold text-white">
-                  ${currentPrice.toFixed(2)}
+                  {formatPrice(currentPrice)}
                 </span>
                 <div className={`flex items-center space-x-1 ${getPriceChangeColor()}`}>
                   <span className="text-sm">{getPriceChangeIcon()}</span>
                   <span className="text-sm font-medium">
-                    ${Math.abs(priceChange).toFixed(2)}
+                    {formatPrice(Math.abs(priceChange))}
                   </span>
                   <span className="text-xs">
-                    ({priceChangePercent > 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%)
+                    ({formatPercentage(priceChangePercent)})
                   </span>
                 </div>
               </>
@@ -79,7 +81,7 @@ export default function RealTimePriceIndicator({
         <div className="text-right">
           <div className="text-xs text-gray-400 mb-1">24h Change</div>
           <div className={`text-lg font-bold ${getPriceChangeColor()}`}>
-            {priceChangePercent > 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%
+            {formatPercentage(priceChangePercent)}
           </div>
         </div>
       </div>

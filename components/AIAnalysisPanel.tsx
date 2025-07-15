@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ClaudeAI, AIAnalysisResult } from '@/lib/claude-ai';
+import { formatPrice, formatPercentage } from '@/lib/formatPrice';
 import { ProcessedCandle, BinanceInterval, binanceFetcher } from '@/lib/binance';
 import { TechnicalIndicators, TechnicalAnalysis } from '@/lib/technical-analysis';
 
@@ -151,7 +152,6 @@ export default function AIAnalysisPanel({ candles, indicators, currentTimeframe 
 
   // Auto-refresh when symbol changes ONLY (removed to prevent rate limit issues)
   useEffect(() => {
-    const hadPreviousResult = hadPreviousResultRef.current;
     setAiResult(null);
     setAiError(null);
     console.log('Symbol changed to:', currentSymbol, '- clearing AI results');
@@ -217,9 +217,9 @@ AI Type: ${lastAnalysisInfo?.isRealAI ? 'REAL AI' : 'MOCK AI'}
 Signal: ${aiResult.signal.type}
 Strength: ${aiResult.signal.strength}%
 Confidence: ${aiResult.signal.confidence}%
-Entry Price: $${aiResult.signal.entryPrice?.toFixed(2) || 'N/A'}
-Stop Loss: $${aiResult.signal.stopLoss?.toFixed(2) || 'N/A'}
-Take Profit: $${aiResult.signal.takeProfit?.toFixed(2) || 'N/A'}
+Entry Price: ${formatPrice(aiResult.signal.entryPrice) || 'N/A'}
+Stop Loss: ${formatPrice(aiResult.signal.stopLoss) || 'N/A'}
+Take Profit: ${formatPrice(aiResult.signal.takeProfit) || 'N/A'}
 
 === MARKET SENTIMENT ===
 ${aiResult.marketSentiment}
@@ -661,12 +661,12 @@ Generated: ${new Date().toLocaleString()}`;
             {aiResult.signal.entryPrice && (
               <div className="text-xs sm:text-sm text-gray-400 mt-2">
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
-                  <span>Entry: ${aiResult.signal.entryPrice.toFixed(2)}</span>
+                  <span>Entry: {formatPrice(aiResult.signal.entryPrice)}</span>
                   {aiResult.signal.stopLoss && (
-                    <span>SL: ${aiResult.signal.stopLoss.toFixed(2)}</span>
+                    <span>SL: {formatPrice(aiResult.signal.stopLoss)}</span>
                   )}
                   {aiResult.signal.takeProfit && (
-                    <span>TP: ${aiResult.signal.takeProfit.toFixed(2)}</span>
+                    <span>TP: {formatPrice(aiResult.signal.takeProfit)}</span>
                   )}
                 </div>
               </div>
