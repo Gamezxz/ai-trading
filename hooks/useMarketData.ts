@@ -23,15 +23,19 @@ export function useMarketData() {
   const [tickerData, setTickerData] = useState<TickerData | null>(null);
   const [wsError, setWsError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<string>('Not initialized');
+  const [lastPriceUpdateTime, setLastPriceUpdateTime] = useState<number>(Date.now());
 
   const wsRef = useRef<ReturnType<typeof createBinanceWebSocket> | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
   const lastPriceFetchRef = useRef<number>(0);
   const cacheTimeoutRef = useRef<number>(300000); // 5 minute cache for market data
   const priceCacheTimeoutRef = useRef<number>(30000); // 30 second cache for price data
+  const isRefreshingRef = useRef<boolean>(false);
+  const isChangingTimeframeRef = useRef<boolean>(false);
+  const isChangingSymbolRef = useRef<boolean>(false);
 
   // Fetch initial price and ticker data with caching
-  const fetchPriceData = useCallback(async (force = false) => {
+  const fetchPriceData = useCallback(async (force = false): Promise<void> => {
     const now = Date.now();
     
     // Check cache - only fetch if forced or cache expired
@@ -69,7 +73,7 @@ export function useMarketData() {
     }
   }, [currentSymbol]);
 
-  const fetchData = useCallback(async (timeframe?: BinanceInterval, force = false) => {
+  const fetchData = useCallback(async (timeframe?: BinanceInterval, force = false): Promise<void> => {
     try {
       setError(null);
       const intervalToUse = timeframe || currentTimeframe;
@@ -86,6 +90,19 @@ export function useMarketData() {
       // Fetch candlestick data only for AI analysis
       const candles = await binanceFetcher.fetchKlines(currentSymbol, intervalToUse, 100);
       console.log('Candles fetched for AI analysis:', candles.length);
+      
+      // Update latest candle with current live price if available
+      if (candles.length > 0 && currentPrice) {
+        const latestCandle = candles[candles.length - 1];
+        // Only update if the live price is different and realistic
+        if (Math.abs(currentPrice - latestCandle.close) / latestCandle.close < 0.05) { // 5% threshold
+          latestCandle.close = currentPrice;
+          latestCandle.high = Math.max(latestCandle.high, currentPrice);
+          latestCandle.low = Math.min(latestCandle.low, currentPrice);
+          console.log('Updated latest candle with live price:', currentPrice);
+        }
+      }
+      
       setCandleData(candles);
       
       // Set current price from latest candle if not already set
@@ -152,23 +169,32 @@ export function useMarketData() {
     // Update current price for price indicator
     setCurrentPrice(currentCandle.close);
     setLastUpdate(new Date());
+    setLastPriceUpdateTime(Date.now());
   }, []);
 
   const handleTickerUpdate = useCallback((data: WebSocketTickerData) => {
     const price = parseFloat(data.c);
-    const change = parseFloat(data.p);
-    const changePercent = parseFloat(data.P);
     
+    // Only update price, don't override 24hr change data unless it's meaningful
     setCurrentPrice(price);
-    setPriceChange(change);
-    setPriceChangePercent(changePercent);
     setLastUpdate(new Date());
+    setLastPriceUpdateTime(Date.now());
     
-    console.log('Ticker update:', {
-      price,
-      change,
-      changePercent: changePercent.toFixed(2) + '%'
-    });
+    // Only update change data if it's not zero (real ticker data)
+    if (parseFloat(data.p) !== 0 || parseFloat(data.P) !== 0) {
+      const change = parseFloat(data.p);
+      const changePercent = parseFloat(data.P);
+      setPriceChange(change);
+      setPriceChangePercent(changePercent);
+      
+      console.log('Ticker update with 24hr data:', {
+        price,
+        change,
+        changePercent: changePercent.toFixed(2) + '%'
+      });
+    } else {
+      console.log('Price update only:', { price });
+    }
   }, []);
 
   const handleConnectionChange = useCallback((connected: boolean) => {
@@ -195,6 +221,13 @@ export function useMarketData() {
 
   // Initialize WebSocket
   useEffect(() => {
+    console.log('Initializing WebSocket for', currentSymbol, currentTimeframe);
+    
+    // Clean up existing WebSocket first
+    if (wsRef.current) {
+      wsRef.current.disconnect();
+    }
+    
     wsRef.current = createBinanceWebSocket(currentSymbol, currentTimeframe);
     
     wsRef.current.onKline(handleKlineUpdate);
@@ -209,40 +242,65 @@ export function useMarketData() {
     setConnectionState(wsRef.current.getConnectionState());
 
     return () => {
+      console.log('Cleaning up WebSocket');
       if (wsRef.current) {
         wsRef.current.disconnect();
+        wsRef.current = null;
       }
     };
   }, [currentSymbol, currentTimeframe, handleKlineUpdate, handleTickerUpdate, handleConnectionChange, handleWebSocketError]);
 
-  const changeTimeframe = useCallback((newTimeframe: BinanceInterval) => {
+  const changeTimeframe = useCallback(async (newTimeframe: BinanceInterval) => {
     if (newTimeframe === currentTimeframe) {
       console.log('Same timeframe selected, skipping change');
       return;
     }
     
-    console.log('Changing timeframe from', currentTimeframe, 'to', newTimeframe);
-    setCurrentTimeframe(newTimeframe);
-    setIsLoading(true);
-    
-    // Change WebSocket stream
-    if (wsRef.current) {
-      wsRef.current.changeStream(currentSymbol, newTimeframe);
+    if (isChangingTimeframeRef.current) {
+      console.log('Timeframe change already in progress, skipping...');
+      return;
     }
     
-    // Force fetch new data for AI analysis (but respect caching for same timeframe)
-    fetchData(newTimeframe, true);
+    console.log('Changing timeframe from', currentTimeframe, 'to', newTimeframe);
+    isChangingTimeframeRef.current = true;
+    setCurrentTimeframe(newTimeframe);
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Change WebSocket stream
+      if (wsRef.current) {
+        wsRef.current.changeStream(currentSymbol, newTimeframe);
+      }
+      
+      // Force fetch new data for AI analysis
+      await fetchData(newTimeframe, true);
+      console.log('Timeframe changed successfully to', newTimeframe);
+    } catch (err) {
+      console.error('Failed to change timeframe:', err);
+      setError(err instanceof Error ? err.message : 'Failed to change timeframe');
+    } finally {
+      isChangingTimeframeRef.current = false;
+      setIsLoading(false);
+    }
   }, [currentSymbol, currentTimeframe, fetchData]);
 
-  const changeSymbol = useCallback((newSymbol: string) => {
+  const changeSymbol = useCallback(async (newSymbol: string) => {
     if (newSymbol === currentSymbol) {
       console.log('Same symbol selected, skipping change');
       return;
     }
     
+    if (isChangingSymbolRef.current) {
+      console.log('Symbol change already in progress, skipping...');
+      return;
+    }
+    
     console.log('Changing symbol from', currentSymbol, 'to', newSymbol);
+    isChangingSymbolRef.current = true;
     setCurrentSymbol(newSymbol);
     setIsLoading(true);
+    setError(null);
     
     // Reset states
     setCandleData([]);
@@ -252,25 +310,63 @@ export function useMarketData() {
     setPriceChange(0);
     setPriceChangePercent(0);
     setTickerData(null);
-    setError(null);
     
-    // Change WebSocket stream
-    if (wsRef.current) {
-      wsRef.current.changeStream(newSymbol, currentTimeframe);
+    try {
+      // Change WebSocket stream
+      if (wsRef.current) {
+        wsRef.current.changeStream(newSymbol, currentTimeframe);
+      }
+      
+      // Force fetch new data for new symbol
+      await fetchPriceData(true);
+      await fetchData(currentTimeframe, true);
+      console.log('Symbol changed successfully to', newSymbol);
+    } catch (err) {
+      console.error('Failed to change symbol:', err);
+      setError(err instanceof Error ? err.message : 'Failed to change symbol');
+    } finally {
+      isChangingSymbolRef.current = false;
+      setIsLoading(false);
     }
-    
-    // Force fetch new data for new symbol
-    fetchData(currentTimeframe, true);
-    fetchPriceData(true);
   }, [currentSymbol, currentTimeframe, fetchData, fetchPriceData]);
 
-  const refreshData = useCallback(() => {
-    console.log('Manual refresh triggered');
+  const refreshData = useCallback(async () => {
+    if (isRefreshingRef.current) {
+      console.log('Refresh already in progress, skipping...');
+      return;
+    }
+    
+    console.log('Manual refresh triggered - fetching latest live data');
+    isRefreshingRef.current = true;
     setIsLoading(true);
-    // Force fetch fresh data and price data
-    fetchPriceData(true);
-    fetchData(undefined, true);
-  }, [fetchData, fetchPriceData]);
+    setError(null);
+    
+    try {
+      // Force fetch fresh data and price data sequentially to avoid race conditions
+      await fetchPriceData(true);
+      await fetchData(undefined, true);
+      
+      // Update analysis with the latest candleData that includes current live price
+      if (candleData.length > 0) {
+        const marketAnalysis = AIAnalyzer.analyzeMarket(candleData);
+        setAnalysis(marketAnalysis);
+        
+        // Calculate indicator arrays with latest data
+        const indicators = TechnicalAnalysis.calculateIndicatorArrays(candleData);
+        setIndicatorArrays(indicators);
+        
+        console.log('Analysis updated with latest live data');
+      }
+      
+      console.log('Manual refresh completed successfully');
+    } catch (err) {
+      console.error('Manual refresh failed:', err);
+      setError(err instanceof Error ? err.message : 'Refresh failed');
+    } finally {
+      isRefreshingRef.current = false;
+      setIsLoading(false);
+    }
+  }, [fetchData, fetchPriceData, candleData]);
 
   // Initial data fetch - fetch price data first, then market data once
   useEffect(() => {
@@ -284,6 +380,31 @@ export function useMarketData() {
     
     initializeData();
   }, []); // Empty deps - only run once on mount
+
+  // Price fallback mechanism - fetch price data if WebSocket fails
+  useEffect(() => {
+    const priceUpdateInterval = setInterval(() => {
+      const timeSinceLastPriceUpdate = Date.now() - lastPriceUpdateTime;
+      
+      // If no price update for 60 seconds and WebSocket is connected, fetch manually
+      if (timeSinceLastPriceUpdate > 60000 && isConnected) {
+        console.log('No price update for 60 seconds, fetching price data manually...');
+        fetchPriceData(true).catch(err => {
+          console.error('Manual price fetch failed:', err);
+        });
+      }
+      
+      // If WebSocket is disconnected for too long, try to reconnect
+      if (!isConnected && timeSinceLastPriceUpdate > 120000) {
+        console.log('WebSocket disconnected for too long, trying to reconnect...');
+        if (wsRef.current) {
+          wsRef.current.connect();
+        }
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(priceUpdateInterval);
+  }, [isConnected, lastPriceUpdateTime, fetchPriceData]);
 
   // Remove auto-refresh timer since TradingView widget handles real-time data
   // and WebSocket provides price updates

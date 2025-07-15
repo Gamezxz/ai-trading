@@ -15,9 +15,10 @@ interface AnalysisPanelProps {
   indicators?: TechnicalIndicators | null;
   currentTimeframe?: BinanceInterval;
   currentSymbol?: string;
+  currentPrice?: number | null;
 }
 
-export default function AnalysisPanel({ analysis, isLoading, useAI, candles, indicators, currentTimeframe, currentSymbol = 'BTCUSDT' }: AnalysisPanelProps) {
+export default function AnalysisPanel({ analysis, isLoading, useAI, candles, indicators, currentTimeframe, currentSymbol = 'BTCUSDT', currentPrice }: AnalysisPanelProps) {
   const [expandedPattern, setExpandedPattern] = useState<string | null>(null);
 
   // Show AI analysis if enabled and data is available
@@ -29,6 +30,7 @@ export default function AnalysisPanel({ analysis, isLoading, useAI, candles, ind
         isLoading={isLoading}
         currentTimeframe={currentTimeframe}
         currentSymbol={currentSymbol}
+        currentPrice={currentPrice}
       />
     );
   }

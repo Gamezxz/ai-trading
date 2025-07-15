@@ -51,6 +51,8 @@ export class BinanceWebSocket {
   private isConnecting = false;
   private lastConnectionTime = 0;
   private pingInterval: NodeJS.Timeout | null = null;
+  private lastDataReceived = 0;
+  private dataTimeoutCheck: NodeJS.Timeout | null = null;
   
   // Fallback WebSocket URLs (corrected according to Binance documentation)
   private readonly wsUrls = [
@@ -108,37 +110,37 @@ export class BinanceWebSocket {
           this.connectionTimeout = null;
         }
         
-        // Start ping/pong heartbeat (Binance requires response within 1 minute)
+        // Start data timeout monitoring
         this.startHeartbeat();
+        this.startDataTimeoutCheck();
+        
+        // Update last data received timestamp
+        this.lastDataReceived = Date.now();
         
         this.onConnectionChange?.(true);
       };
 
       this.ws.onmessage = (event) => {
         try {
+          // Update last data received timestamp
+          this.lastDataReceived = Date.now();
+          
           const data = JSON.parse(event.data);
           
           if (data.e === 'kline') {
             this.onKlineUpdate?.(data as WebSocketKlineData);
-            // Extract price data for ticker simulation with realistic change calculation
+            // Only send ticker data with current price, don't simulate 24hr change
             if (data.k && data.k.c) {
-              const currentPrice = parseFloat(data.k.c);
-              const openPrice = parseFloat(data.k.o);
-              
-              // Calculate price change and percentage
-              const priceChange = currentPrice - openPrice;
-              const priceChangePercent = openPrice > 0 ? (priceChange / openPrice) * 100 : 0;
-              
               const tickerData: WebSocketTickerData = {
                 e: '24hrTicker',
                 E: data.E,
                 s: data.s,
                 c: data.k.c, // Current close price
-                o: data.k.o, // Open price
-                h: data.k.h, // High price
-                l: data.k.l, // Low price
-                P: priceChangePercent.toFixed(2), // Price change percent (calculated)
-                p: priceChange.toFixed(2)  // Price change (calculated)
+                o: data.k.o, // Open price of this kline
+                h: data.k.h, // High price of this kline
+                l: data.k.l, // Low price of this kline
+                P: '0.00', // Will be updated by real ticker data
+                p: '0.00'  // Will be updated by real ticker data
               };
               this.onTickerUpdate?.(tickerData);
             }
@@ -159,8 +161,9 @@ export class BinanceWebSocket {
           this.connectionTimeout = null;
         }
         
-        // Stop heartbeat on disconnect
+        // Stop monitoring on disconnect
         this.stopHeartbeat();
+        this.stopDataTimeoutCheck();
         
         this.onConnectionChange?.(false);
         
@@ -248,27 +251,55 @@ export class BinanceWebSocket {
     // Clear any existing heartbeat
     this.stopHeartbeat();
     
-    // Binance requires ping response within 1 minute, so we ping every 30 seconds
+    // Binance WebSocket streams don't require heartbeat messages
+    // The connection stays alive as long as we're receiving data
+    // We'll implement a data timeout check instead
     this.pingInterval = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        try {
-          // Browser WebSocket doesn't have ping method, use text message for heartbeat
-          this.ws.send(JSON.stringify({id: 1, method: 'PING'}));
-          console.log('[WebSocket] Heartbeat sent');
-        } catch (error) {
-          console.warn('[WebSocket] Heartbeat failed:', error);
+        // Check if we're still receiving data - if not, something might be wrong
+        const timeSinceLastConnection = Date.now() - this.lastConnectionTime;
+        if (timeSinceLastConnection > 60000) { // 1 minute without reconnection
+          console.log('[WebSocket] No activity detected, connection seems healthy');
         }
       }
     }, 30000); // 30 seconds
     
-    console.log('[WebSocket] Heartbeat started (30s interval)');
+    console.log('[WebSocket] Health check started (30s interval)');
   }
   
   private stopHeartbeat() {
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
-      console.log('[WebSocket] Heartbeat stopped');
+      console.log('[WebSocket] Health check stopped');
+    }
+  }
+  
+  private startDataTimeoutCheck() {
+    this.stopDataTimeoutCheck();
+    
+    // Check for data timeout every 15 seconds
+    this.dataTimeoutCheck = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        const timeSinceLastData = Date.now() - this.lastDataReceived;
+        
+        // If no data received for 30 seconds, something is wrong
+        if (timeSinceLastData > 30000) {
+          console.warn('[WebSocket] No data received for 30 seconds, reconnecting...');
+          this.handleConnectionError('Data timeout - no price updates received');
+          this.ws.close(1000, 'Data timeout');
+        }
+      }
+    }, 15000);
+    
+    console.log('[WebSocket] Data timeout check started (15s interval)');
+  }
+  
+  private stopDataTimeoutCheck() {
+    if (this.dataTimeoutCheck) {
+      clearInterval(this.dataTimeoutCheck);
+      this.dataTimeoutCheck = null;
+      console.log('[WebSocket] Data timeout check stopped');
     }
   }
 
@@ -281,8 +312,9 @@ export class BinanceWebSocket {
       this.connectionTimeout = null;
     }
     
-    // Stop heartbeat
+    // Stop all monitoring
     this.stopHeartbeat();
+    this.stopDataTimeoutCheck();
     
     // Reset state
     this.isConnecting = false;

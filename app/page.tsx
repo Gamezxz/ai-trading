@@ -183,6 +183,7 @@ export default function Dashboard() {
               indicators={indicators}
               currentTimeframe={currentTimeframe}
               currentSymbol={currentSymbol}
+              currentPrice={currentPrice}
             />
           </div>
         </div>
