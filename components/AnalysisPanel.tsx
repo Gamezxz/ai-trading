@@ -77,7 +77,7 @@ export default function AnalysisPanel({ analysis, isLoading, useAI, candles, ind
       <div className="flex justify-between items-center">
         <div>
           <h3 className="text-xl font-bold text-white">{currentSymbol.replace('USDT', '/USDT')}</h3>
-          <p className="text-2xl font-mono text-white">{formatPrice(analysis.currentPrice)}</p>
+          <p className="text-2xl font-mono text-white">{formatPrice(currentPrice || analysis.currentPrice)}</p>
         </div>
         <div className="text-right">
           <p className="text-sm text-gray-400">Market Trend</p>

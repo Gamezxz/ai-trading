@@ -108,10 +108,12 @@ export default function AIAnalysisPanel({ candles, indicators, currentTimeframe 
       
       let result: AIAnalysisResult;
       
+      const safeCurrentPrice = currentPrice ?? undefined;
+      
       if (useMock) {
         // Force use mock analysis
         console.log('🧪 USING MOCK AI (User requested)');
-        result = await ClaudeAI.mockAnalyze(analysisCandles, analysisIndicators, currentPrice);
+        result = await ClaudeAI.mockAnalyze(analysisCandles, analysisIndicators, safeCurrentPrice);
         setLastAnalysisInfo({
           timestamp: new Date().toLocaleString(),
           provider: 'Mock AI',
@@ -120,7 +122,7 @@ export default function AIAnalysisPanel({ candles, indicators, currentTimeframe 
       } else if (!providerStatus?.available) {
         // No providers available, fall back to mock
         console.log('🧪 USING MOCK AI (No providers available)');
-        result = await ClaudeAI.mockAnalyze(analysisCandles, analysisIndicators, currentPrice);
+        result = await ClaudeAI.mockAnalyze(analysisCandles, analysisIndicators, safeCurrentPrice);
         setLastAnalysisInfo({
           timestamp: new Date().toLocaleString(),
           provider: 'Mock AI (Fallback)',
@@ -131,7 +133,7 @@ export default function AIAnalysisPanel({ candles, indicators, currentTimeframe 
         const provider = selectedProvider === 'auto' ? undefined : selectedProvider;
         const actualProvider = provider || providerStatus.currentProvider;
         console.log(`🤖 USING REAL AI: ${actualProvider}`);
-        result = await ClaudeAI.analyzeMarket(analysisCandles, analysisIndicators, provider, undefined, currentPrice);
+        result = await ClaudeAI.analyzeMarket(analysisCandles, analysisIndicators, provider, undefined, safeCurrentPrice);
         setLastAnalysisInfo({
           timestamp: new Date().toLocaleString(),
           provider: actualProvider,
@@ -150,16 +152,22 @@ export default function AIAnalysisPanel({ candles, indicators, currentTimeframe 
     }
   }, [candles, indicators, selectedTimeframe, currentTimeframe, currentSymbol, providerStatus?.available, selectedProvider]);
 
-  // Auto-refresh when symbol changes ONLY (removed to prevent rate limit issues)
+  // Auto-refresh when symbol changes - with delay to prevent rate limit issues
   useEffect(() => {
     setAiResult(null);
     setAiError(null);
-    console.log('Symbol changed to:', currentSymbol, '- clearing AI results');
+    console.log('Symbol changed to:', currentSymbol, '- clearing AI results and will auto-trigger analysis');
     
-    // Disabled auto-trigger to prevent rate limit issues
-    // Users should manually trigger analysis after symbol change
-    console.log('Auto-trigger disabled - please manually analyze after symbol change');
-  }, [currentSymbol]);
+    // Auto-trigger analysis after symbol change with a 2-second delay to prevent rate limit issues
+    const delayedAnalysis = setTimeout(() => {
+      if (candles && candles.length > 0 && indicators) {
+        console.log('Auto-triggering AI analysis for new symbol:', currentSymbol);
+        handleAnalyzeClick(false);
+      }
+    }, 2000); // 2-second delay to prevent rate limit issues
+    
+    return () => clearTimeout(delayedAnalysis);
+  }, [currentSymbol, candles, indicators, handleAnalyzeClick]);
 
   // Check AI providers on mount
   useEffect(() => {
