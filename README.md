@@ -47,6 +47,16 @@ A sophisticated Bitcoin trading analysis platform built with Next.js, featuring 
 - **Connection Status**: Real-time connection status indicator
 - **Live Price Updates**: Current price and change percentage
 
+### 📊 Market Signals (100% Free)
+- **Bull Market Peak Indicators**: Real-time indicators to detect market tops
+- **Hold/Sell Signals**: Intelligent recommendations based on market conditions
+- **Individual Indicators**: Fear & Greed Index, Bitcoin Dominance, Market Cap Growth, Altcoin Performance, Volume Analysis
+- **Market Sentiment Analysis**: Combined sentiment scoring from multiple free sources
+- **Free Data Sources**: Alternative.me Fear & Greed Index, CoinMarketCap Global Metrics
+- **No API Keys Required**: All data sources are completely free and public
+- **Auto-refresh**: Updates every 10 minutes with manual refresh option
+- **Progress Tracking**: Visual progress bars showing how close indicators are to warning/danger levels
+
 ## 🛠️ Technology Stack
 
 - **Frontend**: Next.js 14, TypeScript, TailwindCSS
@@ -152,6 +162,11 @@ CLAUDE_MODEL=claude-3-haiku-20240307
 # OpenAI (GPT) - Get key from: https://platform.openai.com/api-keys
 OPENAI_API_KEY=sk-your-openai-api-key-here
 OPENAI_MODEL=gpt-3.5-turbo
+
+# ===== MARKET DATA PROVIDERS =====
+
+# Note: All market data providers below use FREE public APIs
+# No API keys required for basic functionality
 ```
 
 ### Getting Free AI (Recommended!)
@@ -254,6 +269,83 @@ The application automatically handles WebSocket connections with:
 - Automatic reconnection with exponential backoff
 - Heartbeat mechanism for connection health
 
+## 🔗 API Endpoints
+
+### Market Signals API (Free)
+
+The application includes a built-in API for market analysis using 100% free data sources:
+
+#### Available Endpoints
+
+**1. Bull Market Peak Indicators**
+```
+GET /api/coinglass?endpoint=indicators
+```
+Returns detailed bull market peak indicators using free public APIs.
+
+**2. Market Sentiment**
+```
+GET /api/coinglass?endpoint=sentiment
+```
+Returns overall market sentiment (bullish/bearish/neutral) from Fear & Greed Index and BTC Dominance.
+
+**3. Sell Signal Strength**
+```
+GET /api/coinglass?endpoint=sell-signal
+```
+Returns sell signal strength analysis (weak/moderate/strong) based on multiple indicators.
+
+**4. Complete Summary (Recommended)**
+```
+GET /api/coinglass?endpoint=summary
+```
+Returns all data combined: sentiment, indicators, sell signals, and data sources.
+
+#### Response Format
+
+All endpoints return JSON data from free public sources.
+
+#### Example Response
+```json
+{
+  "success": true,
+  "data": {
+    "sentiment": {
+      "sentiment": "neutral",
+      "score": 65,
+      "recommendation": "Exercise caution - Multiple indicators showing elevated risk levels"
+    },
+    "indicators": {
+      "overall_score": 65,
+      "overall_status": "caution",
+      "indicators": [
+        {
+          "id": "fear_greed",
+          "name": "Fear & Greed Index",
+          "current_value": 75,
+          "target_value": 90,
+          "progress": 83.3,
+          "status": "warning",
+          "description": "High greed levels indicate potential market top"
+        }
+      ]
+    },
+    "sell_signal": {
+      "strength": "moderate",
+      "shouldSell": false,
+      "reason": "Moderate risk: 4 warning indicators active"
+    }
+  },
+  "cached": false,
+  "timestamp": 1752607431781
+}
+```
+
+#### Caching
+- Bull market indicators: 5 minutes cache
+- Sentiment data: 1 minute cache
+- Automatic fallback to mock data if CoinGlass API is unavailable
+
 ## 📁 Project Structure
 
 ```
@@ -326,6 +418,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - [TradingView](https://www.tradingview.com/) for the excellent Lightweight Charts library
 - [Binance](https://www.binance.com/) for providing free public API access
+- [CoinGlass](https://www.coinglass.com/) for bull market peak indicators and market sentiment data
 - [Groq](https://groq.com/) for free AI API access
 - [Hugging Face](https://huggingface.co/) for free AI models and API
 - [Ollama](https://ollama.ai/) for local AI model hosting

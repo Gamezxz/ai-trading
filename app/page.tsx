@@ -8,6 +8,7 @@ import TimeframeSelector from '@/components/TimeframeSelector';
 import RealTimePriceIndicator from '@/components/RealTimePriceIndicator';
 import AIToggle from '@/components/AIToggle';
 import SymbolSelector from '@/components/SymbolSelector';
+import CoinGlassPanel from '@/components/CoinGlassPanel';
 
 export default function Dashboard() {
   const [useAI, setUseAI] = useState(false);
@@ -174,7 +175,7 @@ export default function Dashboard() {
           </div>
 
           {/* Analysis Panel */}
-          <div className="xl:col-span-1">
+          <div className="xl:col-span-1 space-y-6">
             <AnalysisPanel 
               analysis={analysis} 
               isLoading={isLoading}
@@ -185,6 +186,9 @@ export default function Dashboard() {
               currentSymbol={currentSymbol}
               currentPrice={currentPrice}
             />
+            
+            {/* CoinGlass Market Signals */}
+            <CoinGlassPanel symbol={currentSymbol} />
           </div>
         </div>
       </div>
