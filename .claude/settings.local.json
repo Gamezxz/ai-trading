@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "WebFetch(domain:api.coinalyze.net)"
+    ],
+    "deny": []
+  }
+}

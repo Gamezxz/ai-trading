@@ -1,6 +1,7 @@
 'use client';
 
 import { MarketAnalysis } from '@/lib/ai-analyzer';
+import { formatPrice, formatIndicator } from '@/lib/formatPrice';
 import AIAnalysisPanel from './AIAnalysisPanel';
 import { ProcessedCandle, BinanceInterval } from '@/lib/binance';
 import { TechnicalIndicators, INDICATOR_PERIODS } from '@/lib/technical-analysis';
@@ -15,9 +16,10 @@ interface AnalysisPanelProps {
   indicators?: TechnicalIndicators | null;
   currentTimeframe?: BinanceInterval;
   currentSymbol?: string;
+  currentPrice?: number | null;
 }
 
-export default function AnalysisPanel({ analysis, isLoading, useAI, candles, indicators, currentTimeframe, currentSymbol = 'BTCUSDT' }: AnalysisPanelProps) {
+export default function AnalysisPanel({ analysis, isLoading, useAI, candles, indicators, currentTimeframe, currentSymbol = 'BTCUSDT', currentPrice }: AnalysisPanelProps) {
   const [expandedPattern, setExpandedPattern] = useState<string | null>(null);
 
   // Show AI analysis if enabled and data is available
@@ -29,6 +31,7 @@ export default function AnalysisPanel({ analysis, isLoading, useAI, candles, ind
         isLoading={isLoading}
         currentTimeframe={currentTimeframe}
         currentSymbol={currentSymbol}
+        currentPrice={currentPrice}
       />
     );
   }
@@ -74,7 +77,7 @@ export default function AnalysisPanel({ analysis, isLoading, useAI, candles, ind
       <div className="flex justify-between items-center">
         <div>
           <h3 className="text-xl font-bold text-white">{currentSymbol.replace('USDT', '/USDT')}</h3>
-          <p className="text-2xl font-mono text-white">${analysis.currentPrice.toFixed(2)}</p>
+          <p className="text-2xl font-mono text-white">{formatPrice(currentPrice || analysis.currentPrice)}</p>
         </div>
         <div className="text-right">
           <p className="text-sm text-gray-400">Market Trend</p>
@@ -124,18 +127,18 @@ export default function AnalysisPanel({ analysis, isLoading, useAI, candles, ind
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
               <p className="text-gray-400">Entry</p>
-              <p className="text-white font-mono">${analysis.signals.entryPrice.toFixed(2)}</p>
+              <p className="text-white font-mono">{formatPrice(analysis.signals.entryPrice)}</p>
             </div>
             {analysis.signals.stopLoss && (
               <div>
                 <p className="text-gray-400">Stop Loss</p>
-                <p className="text-red-400 font-mono">${analysis.signals.stopLoss.toFixed(2)}</p>
+                <p className="text-red-400 font-mono">{formatPrice(analysis.signals.stopLoss)}</p>
               </div>
             )}
             {analysis.signals.takeProfit && (
               <div>
                 <p className="text-gray-400">Take Profit</p>
-                <p className="text-green-400 font-mono">${analysis.signals.takeProfit.toFixed(2)}</p>
+                <p className="text-green-400 font-mono">{formatPrice(analysis.signals.takeProfit)}</p>
               </div>
             )}
           </div>
@@ -162,25 +165,25 @@ export default function AnalysisPanel({ analysis, isLoading, useAI, candles, ind
           <div>
             <p className="text-gray-400">RSI ({INDICATOR_PERIODS.RSI})</p>
             <p className="text-white font-mono">
-              {analysis.indicators.rsi ? analysis.indicators.rsi.toFixed(2) : 'N/A'}
+              {formatIndicator(analysis.indicators.rsi, 'ratio')}
             </p>
           </div>
           <div>
             <p className="text-gray-400">SMA ({INDICATOR_PERIODS.SMA_SHORT})</p>
             <p className="text-white font-mono">
-              {analysis.indicators.sma20 ? `$${analysis.indicators.sma20.toFixed(2)}` : 'N/A'}
+              {formatPrice(analysis.indicators.sma20)}
             </p>
           </div>
           <div>
             <p className="text-gray-400">MACD ({INDICATOR_PERIODS.MACD_FAST}/{INDICATOR_PERIODS.MACD_SLOW}/{INDICATOR_PERIODS.MACD_SIGNAL})</p>
             <p className="text-white font-mono">
-              {analysis.indicators.macd.macd ? analysis.indicators.macd.macd.toFixed(4) : 'N/A'}
+              {formatIndicator(analysis.indicators.macd.macd, 'ratio')}
             </p>
           </div>
           <div>
             <p className="text-gray-400">BB Upper ({INDICATOR_PERIODS.BB_PERIOD}/{INDICATOR_PERIODS.BB_MULTIPLIER})</p>
             <p className="text-white font-mono">
-              {analysis.indicators.bollinger.upper ? `$${analysis.indicators.bollinger.upper.toFixed(2)}` : 'N/A'}
+              {formatPrice(analysis.indicators.bollinger.upper)}
             </p>
           </div>
         </div>
@@ -194,13 +197,13 @@ export default function AnalysisPanel({ analysis, isLoading, useAI, candles, ind
             <div>
               <p className="text-gray-400">Support</p>
               <p className="text-green-400 font-mono">
-                {analysis.support ? `$${analysis.support.toFixed(2)}` : 'N/A'}
+                {formatPrice(analysis.support)}
               </p>
             </div>
             <div>
               <p className="text-gray-400">Resistance</p>
               <p className="text-red-400 font-mono">
-                {analysis.resistance ? `$${analysis.resistance.toFixed(2)}` : 'N/A'}
+                {formatPrice(analysis.resistance)}
               </p>
             </div>
           </div>

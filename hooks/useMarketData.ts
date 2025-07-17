@@ -23,15 +23,22 @@ export function useMarketData() {
   const [tickerData, setTickerData] = useState<TickerData | null>(null);
   const [wsError, setWsError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<string>('Not initialized');
+  const [lastPriceUpdateTime, setLastPriceUpdateTime] = useState<number>(Date.now());
 
   const wsRef = useRef<ReturnType<typeof createBinanceWebSocket> | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
   const lastPriceFetchRef = useRef<number>(0);
   const cacheTimeoutRef = useRef<number>(300000); // 5 minute cache for market data
   const priceCacheTimeoutRef = useRef<number>(30000); // 30 second cache for price data
+  const isRefreshingRef = useRef<boolean>(false);
+  const isChangingTimeframeRef = useRef<boolean>(false);
+  const isChangingSymbolRef = useRef<boolean>(false);
+  const lastSyncRef = useRef<number>(0); // Debounce connection state sync
+  const isConnectingRef = useRef<boolean>(false); // Prevent multiple connection attempts
+  const lastConnectionAttemptRef = useRef<number>(0); // Rate limit connections
 
   // Fetch initial price and ticker data with caching
-  const fetchPriceData = useCallback(async (force = false) => {
+  const fetchPriceData = useCallback(async (force = false): Promise<void> => {
     const now = Date.now();
     
     // Check cache - only fetch if forced or cache expired
@@ -69,7 +76,7 @@ export function useMarketData() {
     }
   }, [currentSymbol]);
 
-  const fetchData = useCallback(async (timeframe?: BinanceInterval, force = false) => {
+  const fetchData = useCallback(async (timeframe?: BinanceInterval, force = false): Promise<void> => {
     try {
       setError(null);
       const intervalToUse = timeframe || currentTimeframe;
@@ -86,6 +93,19 @@ export function useMarketData() {
       // Fetch candlestick data only for AI analysis
       const candles = await binanceFetcher.fetchKlines(currentSymbol, intervalToUse, 100);
       console.log('Candles fetched for AI analysis:', candles.length);
+      
+      // Update latest candle with current live price if available
+      if (candles.length > 0 && currentPrice) {
+        const latestCandle = candles[candles.length - 1];
+        // Only update if the live price is different and realistic
+        if (Math.abs(currentPrice - latestCandle.close) / latestCandle.close < 0.05) { // 5% threshold
+          latestCandle.close = currentPrice;
+          latestCandle.high = Math.max(latestCandle.high, currentPrice);
+          latestCandle.low = Math.min(latestCandle.low, currentPrice);
+          console.log('Updated latest candle with live price:', currentPrice);
+        }
+      }
+      
       setCandleData(candles);
       
       // Set current price from latest candle if not already set
@@ -134,10 +154,20 @@ export function useMarketData() {
     }
   }, [currentSymbol, currentTimeframe, currentPrice, candleData.length]);
 
-
-  // WebSocket handlers - simplified for price updates only
-  const handleKlineUpdate = useCallback((data: WebSocketKlineData) => {
+  // Stable WebSocket handlers (no deps that change frequently)
+  const stableHandleKlineUpdate = useCallback((data: WebSocketKlineData) => {
     console.log('Kline update received:', data);
+    
+    // Minimal state sync - only when absolutely necessary
+    const now = Date.now();
+    if ((now - lastSyncRef.current) > 5000) { // Only sync every 5 seconds max
+      lastSyncRef.current = now;
+      if (wsRef.current?.isConnected() && !isConnected) {
+        console.log('[Sync] WebSocket connected but state shows disconnected, fixing...');
+        setIsConnected(true);
+        setConnectionState('Connected');
+      }
+    }
     
     // Update latest candle data for analysis purposes
     const currentCandle: ProcessedCandle = {
@@ -152,38 +182,59 @@ export function useMarketData() {
     // Update current price for price indicator
     setCurrentPrice(currentCandle.close);
     setLastUpdate(new Date());
-  }, []);
+    setLastPriceUpdateTime(Date.now());
+  }, []); // No dependencies - completely stable
 
-  const handleTickerUpdate = useCallback((data: WebSocketTickerData) => {
+  const stableHandleTickerUpdate = useCallback((data: WebSocketTickerData) => {
     const price = parseFloat(data.c);
-    const change = parseFloat(data.p);
-    const changePercent = parseFloat(data.P);
     
+    // Minimal state sync - only when absolutely necessary
+    const now = Date.now();
+    if ((now - lastSyncRef.current) > 5000) { // Only sync every 5 seconds max
+      lastSyncRef.current = now;
+      if (wsRef.current?.isConnected() && !isConnected) {
+        console.log('[Sync] WebSocket connected but ticker shows disconnected, fixing...');
+        setIsConnected(true);
+        setConnectionState('Connected');
+      }
+    }
+    
+    // Only update price, don't override 24hr change data unless it's meaningful
     setCurrentPrice(price);
-    setPriceChange(change);
-    setPriceChangePercent(changePercent);
     setLastUpdate(new Date());
+    setLastPriceUpdateTime(Date.now());
     
-    console.log('Ticker update:', {
-      price,
-      change,
-      changePercent: changePercent.toFixed(2) + '%'
-    });
-  }, []);
+    // Only update change data if it's not zero (real ticker data)
+    if (parseFloat(data.p) !== 0 || parseFloat(data.P) !== 0) {
+      const change = parseFloat(data.p);
+      const changePercent = parseFloat(data.P);
+      setPriceChange(change);
+      setPriceChangePercent(changePercent);
+      
+      console.log('Ticker update with 24hr data:', {
+        price,
+        change,
+        changePercent: changePercent.toFixed(2) + '%'
+      });
+    } else {
+      console.log('Price update only:', { price });
+    }
+  }, []); // No dependencies - completely stable
 
-  const handleConnectionChange = useCallback((connected: boolean) => {
+  const stableHandleConnectionChange = useCallback((connected: boolean) => {
+    console.log(`[Connection] State change: ${connected ? 'CONNECTED' : 'DISCONNECTED'}`);
     setIsConnected(connected);
-    if (!connected) {
-      console.log('WebSocket disconnected');
-    }
     
-    // Update connection state when status changes
-    if (wsRef.current) {
-      setConnectionState(wsRef.current.getConnectionState());
+    if (!connected) {
+      console.log('[Connection] WebSocket disconnected');
+      setConnectionState('Disconnected');
+    } else {
+      console.log('[Connection] WebSocket connected');
+      setConnectionState('Connected');
     }
-  }, []);
+  }, []); // No dependencies - completely stable
   
-  const handleWebSocketError = useCallback((error: string) => {
+  const stableHandleWebSocketError = useCallback((error: string) => {
     console.error('WebSocket error received:', error);
     setWsError(error);
     
@@ -191,58 +242,125 @@ export function useMarketData() {
     setTimeout(() => {
       setWsError(null);
     }, 10000);
-  }, []);
+  }, []); // No dependencies - completely stable
 
-  // Initialize WebSocket
+  // Create WebSocket connection with proper rate limiting
+  const connectWebSocket = useCallback(() => {
+    const now = Date.now();
+    
+    // Rate limiting: Don't allow connections more than once per 2 seconds
+    if ((now - lastConnectionAttemptRef.current) < 2000) {
+      console.log('[WebSocket] Rate limited - too frequent connection attempt');
+      return;
+    }
+    
+    // Prevent multiple simultaneous connection attempts
+    if (isConnectingRef.current) {
+      console.log('[WebSocket] Already connecting, skipping...');
+      return;
+    }
+    
+    console.log('[WebSocket] Creating new connection for', currentSymbol, currentTimeframe);
+    isConnectingRef.current = true;
+    lastConnectionAttemptRef.current = now;
+    
+    // Clean up existing WebSocket completely
+    if (wsRef.current) {
+      console.log('[WebSocket] Cleaning up existing connection...');
+      wsRef.current.disconnect();
+      wsRef.current = null;
+    }
+    
+    // Wait a bit for cleanup to complete
+    setTimeout(() => {
+      try {
+        wsRef.current = createBinanceWebSocket(currentSymbol, currentTimeframe);
+        
+        wsRef.current.onKline(stableHandleKlineUpdate);
+        wsRef.current.onTicker(stableHandleTickerUpdate);
+        wsRef.current.onConnection(stableHandleConnectionChange);
+        wsRef.current.onError(stableHandleWebSocketError);
+        
+        // Connect after setting up handlers
+        wsRef.current.connect();
+        
+        // Update connection state immediately
+        setConnectionState('Connecting');
+        console.log('[WebSocket] Connection initiated');
+      } catch (error) {
+        console.error('[WebSocket] Failed to create connection:', error);
+        setConnectionState('Error');
+      } finally {
+        isConnectingRef.current = false;
+      }
+    }, 100);
+  }, [currentSymbol, currentTimeframe, stableHandleKlineUpdate, stableHandleTickerUpdate, stableHandleConnectionChange, stableHandleWebSocketError]);
+
+  // Initialize WebSocket - only when symbol or timeframe actually changes
   useEffect(() => {
-    wsRef.current = createBinanceWebSocket(currentSymbol, currentTimeframe);
+    console.log('[WebSocket] Initializing for', currentSymbol, currentTimeframe);
+    connectWebSocket();
     
-    wsRef.current.onKline(handleKlineUpdate);
-    wsRef.current.onTicker(handleTickerUpdate);
-    wsRef.current.onConnection(handleConnectionChange);
-    wsRef.current.onError(handleWebSocketError);
-    
-    // Connect after setting up handlers
-    wsRef.current.connect();
-    
-    // Update connection state immediately
-    setConnectionState(wsRef.current.getConnectionState());
-
     return () => {
+      console.log('[WebSocket] Cleanup on symbol/timeframe change');
       if (wsRef.current) {
         wsRef.current.disconnect();
+        wsRef.current = null;
       }
+      isConnectingRef.current = false;
     };
-  }, [currentSymbol, currentTimeframe, handleKlineUpdate, handleTickerUpdate, handleConnectionChange, handleWebSocketError]);
+  }, [currentSymbol, currentTimeframe]); // ONLY symbol and timeframe - no function deps
 
-  const changeTimeframe = useCallback((newTimeframe: BinanceInterval) => {
+  const changeTimeframe = useCallback(async (newTimeframe: BinanceInterval) => {
     if (newTimeframe === currentTimeframe) {
       console.log('Same timeframe selected, skipping change');
       return;
     }
     
-    console.log('Changing timeframe from', currentTimeframe, 'to', newTimeframe);
-    setCurrentTimeframe(newTimeframe);
-    setIsLoading(true);
-    
-    // Change WebSocket stream
-    if (wsRef.current) {
-      wsRef.current.changeStream(currentSymbol, newTimeframe);
+    if (isChangingTimeframeRef.current) {
+      console.log('Timeframe change already in progress, skipping...');
+      return;
     }
     
-    // Force fetch new data for AI analysis (but respect caching for same timeframe)
-    fetchData(newTimeframe, true);
-  }, [currentSymbol, currentTimeframe, fetchData]);
+    console.log('Changing timeframe from', currentTimeframe, 'to', newTimeframe);
+    isChangingTimeframeRef.current = true;
+    setCurrentTimeframe(newTimeframe);
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Force fetch new data for AI analysis
+      await fetchData(newTimeframe, true);
+      console.log('Timeframe changed successfully to', newTimeframe);
+    } catch (err) {
+      console.error('Failed to change timeframe:', err);
+      setError(err instanceof Error ? err.message : 'Failed to change timeframe');
+    } finally {
+      isChangingTimeframeRef.current = false;
+      setIsLoading(false);
+    }
+  }, [currentTimeframe, fetchData]);
 
-  const changeSymbol = useCallback((newSymbol: string) => {
+  const changeSymbol = useCallback(async (newSymbol: string) => {
     if (newSymbol === currentSymbol) {
       console.log('Same symbol selected, skipping change');
       return;
     }
     
+    if (isChangingSymbolRef.current) {
+      console.log('Symbol change already in progress, skipping...');
+      return;
+    }
+    
     console.log('Changing symbol from', currentSymbol, 'to', newSymbol);
+    isChangingSymbolRef.current = true;
     setCurrentSymbol(newSymbol);
     setIsLoading(true);
+    setError(null);
+    
+    // Reset connection state - will be updated when WebSocket reconnects
+    setIsConnected(false);
+    setConnectionState('Connecting');
     
     // Reset states
     setCandleData([]);
@@ -252,25 +370,63 @@ export function useMarketData() {
     setPriceChange(0);
     setPriceChangePercent(0);
     setTickerData(null);
-    setError(null);
     
-    // Change WebSocket stream
-    if (wsRef.current) {
-      wsRef.current.changeStream(newSymbol, currentTimeframe);
+    try {
+      // The useEffect will handle WebSocket reconnection automatically
+      // Wait a bit for the effect to trigger
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Force fetch new data for new symbol
+      console.log(`[Symbol Change] Fetching data for ${newSymbol}`);
+      await fetchPriceData(true);
+      await fetchData(currentTimeframe, true);
+      console.log(`[Symbol Change] Successfully changed to ${newSymbol}`);
+    } catch (err) {
+      console.error('Failed to change symbol:', err);
+      setError(err instanceof Error ? err.message : 'Failed to change symbol');
+    } finally {
+      isChangingSymbolRef.current = false;
+      setIsLoading(false);
     }
-    
-    // Force fetch new data for new symbol
-    fetchData(currentTimeframe, true);
-    fetchPriceData(true);
   }, [currentSymbol, currentTimeframe, fetchData, fetchPriceData]);
 
-  const refreshData = useCallback(() => {
-    console.log('Manual refresh triggered');
+  const refreshData = useCallback(async () => {
+    if (isRefreshingRef.current) {
+      console.log('Refresh already in progress, skipping...');
+      return;
+    }
+    
+    console.log('Manual refresh triggered - fetching latest live data');
+    isRefreshingRef.current = true;
     setIsLoading(true);
-    // Force fetch fresh data and price data
-    fetchPriceData(true);
-    fetchData(undefined, true);
-  }, [fetchData, fetchPriceData]);
+    setError(null);
+    
+    try {
+      // Force fetch fresh data and price data sequentially to avoid race conditions
+      await fetchPriceData(true);
+      await fetchData(undefined, true);
+      
+      // Update analysis with the latest candleData that includes current live price
+      if (candleData.length > 0) {
+        const marketAnalysis = AIAnalyzer.analyzeMarket(candleData);
+        setAnalysis(marketAnalysis);
+        
+        // Calculate indicator arrays with latest data
+        const indicators = TechnicalAnalysis.calculateIndicatorArrays(candleData);
+        setIndicatorArrays(indicators);
+        
+        console.log('Analysis updated with latest live data');
+      }
+      
+      console.log('Manual refresh completed successfully');
+    } catch (err) {
+      console.error('Manual refresh failed:', err);
+      setError(err instanceof Error ? err.message : 'Refresh failed');
+    } finally {
+      isRefreshingRef.current = false;
+      setIsLoading(false);
+    }
+  }, [fetchData, fetchPriceData, candleData]);
 
   // Initial data fetch - fetch price data first, then market data once
   useEffect(() => {
@@ -285,8 +441,26 @@ export function useMarketData() {
     initializeData();
   }, []); // Empty deps - only run once on mount
 
-  // Remove auto-refresh timer since TradingView widget handles real-time data
-  // and WebSocket provides price updates
+  // Reduced frequency monitoring - much less aggressive
+  useEffect(() => {
+    const monitoringInterval = setInterval(() => {
+      const timeSinceLastPriceUpdate = Date.now() - lastPriceUpdateTime;
+      
+      // Only check for issues every 2 minutes, and less aggressive actions
+      if (timeSinceLastPriceUpdate > 120000) {
+        // If no price update for 2 minutes, just fetch price data manually
+        // Don't try to reconnect WebSocket automatically as it might cause loops
+        if (isConnected) {
+          console.log('No price update for 2 minutes, fetching price data manually...');
+          fetchPriceData(true).catch(err => {
+            console.error('Manual price fetch failed:', err);
+          });
+        }
+      }
+    }, 120000); // Check every 2 minutes (much less frequent)
+
+    return () => clearInterval(monitoringInterval);
+  }, [isConnected, lastPriceUpdateTime, fetchPriceData]);
 
   // Re-run analysis when candleData changes
   useEffect(() => {

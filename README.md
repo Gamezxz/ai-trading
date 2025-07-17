@@ -16,10 +16,10 @@ A sophisticated Bitcoin trading analysis platform built with Next.js, featuring 
 - **Real-time Updates** via Binance WebSocket streaming
 
 ### 🤖 AI-Powered Analysis
-- **Dual AI System**: Real AI (Claude) + Mock AI fallback
-- **Browser Integration**: No API keys required - uses `window.claude.complete()`
-- **Clear Source Indication**: Shows whether using "Real AI" or "Mock AI"
-- **Manual Analysis Triggers**: Click-to-analyze instead of automatic
+- **Multiple AI Providers**: Groq (Free), Hugging Face (Free), Ollama (Local), Claude, OpenAI + Mock AI fallback
+- **Optional Configuration**: Works without setup using Mock AI, enhanced with real AI
+- **Clear Provider Indication**: Shows which AI provider is being used
+- **Automatic & Manual Analysis**: Auto-triggers on symbol change + manual analyze button
 - **Multi-timeframe Support**: Analyze any timeframe independently
 
 ### 📈 Technical Indicators
@@ -46,6 +46,16 @@ A sophisticated Bitcoin trading analysis platform built with Next.js, featuring 
 - **Auto-reconnection**: Automatic reconnection with fallback URLs
 - **Connection Status**: Real-time connection status indicator
 - **Live Price Updates**: Current price and change percentage
+
+### 📊 Market Signals (100% Free)
+- **Bull Market Peak Indicators**: Real-time indicators to detect market tops
+- **Hold/Sell Signals**: Intelligent recommendations based on market conditions
+- **Individual Indicators**: Fear & Greed Index, Bitcoin Dominance, Market Cap Growth, Altcoin Performance, Volume Analysis
+- **Market Sentiment Analysis**: Combined sentiment scoring from multiple free sources
+- **Free Data Sources**: Alternative.me Fear & Greed Index, CoinMarketCap Global Metrics
+- **No API Keys Required**: All data sources are completely free and public
+- **Auto-refresh**: Updates every 10 minutes with manual refresh option
+- **Progress Tracking**: Visual progress bars showing how close indicators are to warning/danger levels
 
 ## 🛠️ Technology Stack
 
@@ -77,14 +87,23 @@ A sophisticated Bitcoin trading analysis platform built with Next.js, featuring 
    yarn install
    ```
 
-3. **Run development server**
+3. **Configure AI (Optional)**
+   ```bash
+   # Copy the environment template (optional - app works without this)
+   cp .env.example .env.local
+   
+   # Edit .env.local and add your API keys
+   # Recommended: Get free Groq API key from https://console.groq.com/
+   ```
+
+4. **Run development server**
    ```bash
    npm run dev
    # or
    yarn dev
    ```
 
-4. **Open in browser**
+5. **Open in browser**
    ```
    http://localhost:3000
    ```
@@ -102,6 +121,92 @@ npm start
 npm run lint
 ```
 
+## ⚙️ Environment Configuration
+
+### AI Provider Setup (Optional)
+
+While the application works without any configuration using mock AI, you can enable real AI analysis by setting up environment variables.
+
+**Recommended: Groq (Free)** 🆓
+Groq offers free AI API access, making it the best choice for personal use.
+
+Create a `.env.local` file in the project root:
+
+```bash
+# Copy this template to .env.local and fill in your API keys
+
+# Choose which AI provider to use: claude, openai, groq, huggingface, ollama
+# Default: auto (uses best available provider)
+AI_PROVIDER=auto
+
+# ===== FREE AI PROVIDERS (RECOMMENDED) =====
+
+# 🌟 Groq (FREE & Fast) - Get key from: https://console.groq.com/
+GROQ_API_KEY=gsk_your-groq-api-key-here
+GROQ_MODEL=llama3-8b-8192
+
+# Hugging Face (FREE) - Get key from: https://huggingface.co/settings/tokens
+HUGGINGFACE_API_KEY=hf_your-huggingface-token-here
+HUGGINGFACE_MODEL=microsoft/DialoGPT-medium
+
+# Ollama (FREE Local) - No API key needed, just install: https://ollama.ai/
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2
+
+# ===== PAID AI PROVIDERS =====
+
+# Claude (Anthropic) - Get key from: https://console.anthropic.com/
+ANTHROPIC_API_KEY=sk-ant-your-api-key-here
+CLAUDE_MODEL=claude-3-haiku-20240307
+
+# OpenAI (GPT) - Get key from: https://platform.openai.com/api-keys
+OPENAI_API_KEY=sk-your-openai-api-key-here
+OPENAI_MODEL=gpt-3.5-turbo
+
+# ===== MARKET DATA PROVIDERS =====
+
+# Note: All market data providers below use FREE public APIs
+# No API keys required for basic functionality
+```
+
+### Getting Free AI (Recommended!)
+
+**Option 1: Groq (Fastest & Free)**
+1. Visit [Groq Console](https://console.groq.com/)
+2. Sign up for a free account
+3. Create a new API key
+4. Copy the key to your `.env.local` file
+
+**Option 2: Hugging Face (Free)**
+1. Visit [Hugging Face](https://huggingface.co/settings/tokens)
+2. Create a free account
+3. Generate an access token
+4. Copy the token to your `.env.local` file
+
+**Option 3: Ollama (Local & Free)**
+1. Install [Ollama](https://ollama.ai/) locally
+2. Run `ollama pull llama3.2` to download the model
+3. No API key needed - runs on your computer
+
+### AI Provider Priority Order
+
+The application automatically selects the best available provider:
+
+1. **Groq** (if API key provided) - Fast & Free
+2. **Hugging Face** (if API key provided) - Free online
+3. **Ollama** (if running locally) - Free offline
+4. **Claude** (if API key provided) - High quality (paid)
+5. **OpenAI** (if API key provided) - GPT models (paid)
+6. **Mock AI** (always available) - Fallback using technical analysis
+
+### No Configuration Required
+
+If you don't set up any API keys, the application will:
+- ✅ Still work perfectly with all features
+- ✅ Use intelligent mock AI based on technical indicators
+- ✅ Provide trading signals and analysis
+- ✅ Show clear indication that it's using "Mock AI"
+
 ## 📖 Usage Guide
 
 ### Basic Usage
@@ -116,14 +221,20 @@ npm run lint
 
 The platform supports two types of AI analysis:
 
-- **Real AI**: Uses Claude AI via browser integration (when available)
-- **Mock AI**: Fallback system using technical indicators
+- **Real AI**: Uses configured AI providers (Groq, Hugging Face, Ollama, Claude, OpenAI)
+- **Mock AI**: Intelligent fallback using technical indicators
 
-Results include:
+**Setting up Real AI:**
+1. Add API keys to `.env.local` (see [Environment Configuration](#️-environment-configuration))
+2. **Recommended**: Use Groq, Hugging Face, or Ollama for free AI analysis
+3. The app automatically detects and uses available providers
+
+**Analysis Results:**
 - Trading signals (BUY/SELL/HOLD)
 - Entry/exit price recommendations
 - Stop loss and take profit levels
 - Confidence levels and reasoning
+- Clear indication of AI provider used
 
 ### Technical Features
 
@@ -136,10 +247,19 @@ Results include:
 
 ### Environment Variables
 
-No environment variables or API keys required! The application uses:
-- Binance public API endpoints
-- Browser-based Claude AI integration
-- WebSocket connections without authentication
+The application works out-of-the-box without any configuration, but supports optional AI providers:
+
+**Without Configuration:**
+- ✅ Binance public API endpoints (no auth required)
+- ✅ Mock AI analysis using technical indicators
+- ✅ WebSocket connections without authentication
+
+**With AI Configuration (Optional):**
+- 🤖 Real AI analysis using Groq, Hugging Face, Ollama, Claude, or OpenAI
+- 📊 Enhanced market insights and predictions
+- 🎯 More sophisticated trading recommendations
+
+See the [Environment Configuration](#️-environment-configuration) section above for setup details.
 
 ### WebSocket Configuration
 
@@ -148,6 +268,83 @@ The application automatically handles WebSocket connections with:
 - Multiple fallback URLs for reliability
 - Automatic reconnection with exponential backoff
 - Heartbeat mechanism for connection health
+
+## 🔗 API Endpoints
+
+### Market Signals API (Free)
+
+The application includes a built-in API for market analysis using 100% free data sources:
+
+#### Available Endpoints
+
+**1. Bull Market Peak Indicators**
+```
+GET /api/coinglass?endpoint=indicators
+```
+Returns detailed bull market peak indicators using free public APIs.
+
+**2. Market Sentiment**
+```
+GET /api/coinglass?endpoint=sentiment
+```
+Returns overall market sentiment (bullish/bearish/neutral) from Fear & Greed Index and BTC Dominance.
+
+**3. Sell Signal Strength**
+```
+GET /api/coinglass?endpoint=sell-signal
+```
+Returns sell signal strength analysis (weak/moderate/strong) based on multiple indicators.
+
+**4. Complete Summary (Recommended)**
+```
+GET /api/coinglass?endpoint=summary
+```
+Returns all data combined: sentiment, indicators, sell signals, and data sources.
+
+#### Response Format
+
+All endpoints return JSON data from free public sources.
+
+#### Example Response
+```json
+{
+  "success": true,
+  "data": {
+    "sentiment": {
+      "sentiment": "neutral",
+      "score": 65,
+      "recommendation": "Exercise caution - Multiple indicators showing elevated risk levels"
+    },
+    "indicators": {
+      "overall_score": 65,
+      "overall_status": "caution",
+      "indicators": [
+        {
+          "id": "fear_greed",
+          "name": "Fear & Greed Index",
+          "current_value": 75,
+          "target_value": 90,
+          "progress": 83.3,
+          "status": "warning",
+          "description": "High greed levels indicate potential market top"
+        }
+      ]
+    },
+    "sell_signal": {
+      "strength": "moderate",
+      "shouldSell": false,
+      "reason": "Moderate risk: 4 warning indicators active"
+    }
+  },
+  "cached": false,
+  "timestamp": 1752607431781
+}
+```
+
+#### Caching
+- Bull market indicators: 5 minutes cache
+- Sentiment data: 1 minute cache
+- Automatic fallback to mock data if CoinGlass API is unavailable
 
 ## 📁 Project Structure
 
@@ -221,7 +418,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - [TradingView](https://www.tradingview.com/) for the excellent Lightweight Charts library
 - [Binance](https://www.binance.com/) for providing free public API access
+- [CoinGlass](https://www.coinglass.com/) for bull market peak indicators and market sentiment data
+- [Groq](https://groq.com/) for free AI API access
+- [Hugging Face](https://huggingface.co/) for free AI models and API
+- [Ollama](https://ollama.ai/) for local AI model hosting
 - [Anthropic](https://www.anthropic.com/) for Claude AI integration
+- [OpenAI](https://openai.com/) for GPT API access
 - [Next.js](https://nextjs.org/) team for the amazing framework
 
 ## 📧 Contact

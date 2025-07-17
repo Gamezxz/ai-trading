@@ -89,11 +89,13 @@ BTCUSD Trading Analyzer เป็น Next.js web application ที่ใช้�
 
 ## AI Analysis Details
 
-### Real AI Integration
+### Multi-Provider AI Integration
 
-- ใช้ `window.claude.complete()` สำหรับ browser-based AI
-- ส่ง prompt ที่มีข้อมูล market data และ technical indicators
-- รับผลลัพธ์เป็น JSON format พร้อม trading signals
+- **Provider Support**: Claude, OpenAI, Groq, Hugging Face, Ollama
+- **Backend API**: `/api/ai/analyze` with provider switching
+- **Auto Selection**: Automatically uses best available provider
+- **Free Options**: Groq (fast), Ollama (local), Hugging Face
+- **Paid Options**: Claude (best quality), OpenAI (GPT)
 
 ### Mock AI Fallback
 
@@ -213,9 +215,62 @@ The `useMarketData` hook in `hooks/useMarketData.ts` is the central orchestrator
 
 ## Environment Setup
 
-- ไม่ต้องใช้ API keys (ใช้ Binance public API)
-- ใช้ browser-based Claude AI integration
-- รองรับ development และ production environments
+### AI Provider Options
+
+#### 🚀 **Free Providers (Recommended)**
+
+1. **Groq (Fastest & Free)**:
+   - Get API key: [console.groq.com](https://console.groq.com/)
+   - Models: Llama 3, Mixtral, Gemma
+   - Extremely fast inference
+   - Add to `.env.local`: `GROQ_API_KEY=gsk_your-key`
+
+2. **Ollama (Local & Free)**:
+   - Install: [ollama.ai](https://ollama.ai/)
+   - Run: `ollama run llama3.2`
+   - No API key needed
+   - Completely private and free
+
+3. **Hugging Face (Free)**:
+   - Get token: [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+   - Add to `.env.local`: `HUGGINGFACE_API_KEY=hf_your-token`
+
+#### 💰 **Paid Providers (Higher Quality)**
+
+1. **Claude (Best Quality)**:
+   - Get API key: [console.anthropic.com](https://console.anthropic.com/)
+   - Models: Haiku, Sonnet, Opus
+   - Add to `.env.local`: `ANTHROPIC_API_KEY=sk-ant-your-key`
+
+2. **OpenAI (GPT)**:
+   - Get API key: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+   - Models: GPT-3.5, GPT-4, GPT-4o
+   - Add to `.env.local`: `OPENAI_API_KEY=sk-your-key`
+
+### Setup Instructions
+
+1. **Choose Provider** (Recommended: Groq for free fast AI):
+   ```bash
+   cp .env.example .env.local
+   # Edit .env.local and add your chosen provider's API key
+   ```
+
+2. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Run Development Server**:
+   ```bash
+   npm run dev
+   ```
+
+### API Usage
+
+- **Binance API**: Public API (no keys required)
+- **AI Providers**: Configure at least one for real AI analysis
+- **Auto Selection**: System picks best available provider
+- **Fallback**: Mock AI available when no providers configured
 
 ## Future Enhancements
 

@@ -12,8 +12,10 @@
     "deploy": "npm run pages:build && wrangler pages deploy"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.56.0",
     "axios": "^1.10.0",
     "next": "15.3.5",
+    "openai": "^5.9.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^3.1.0"
